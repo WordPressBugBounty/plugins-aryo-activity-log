@@ -1,10 +1,10 @@
 === Activity Log - Monitor & Record User Changes ===
-Contributors: elemntor, KingYes, ariel.k, maor
+Contributors: elemntor, KingYes, ariel.k
 Tags: Activity Log, User Log, Audit Log, Security, Email Log,
 Requires at least: 6.0
-Requires PHP: 7.0
-Tested up to: 7.0
-Stable tag: 2.12.0
+Requires PHP: 7.4
+Tested up to: 7.1
+Stable tag: 2.12.1
 License: GPLv2 or later
 
 Monitor every change on your WordPress site — who did what, when, and where it came from — for a complete audit trail and stronger security.
@@ -99,7 +99,7 @@ Uninstalling the plugin removes all of its data from your database automatically
 == Frequently Asked Questions ==
 
 = Requirements =
-__Requires PHP 7.0__ for list management functionality.
+__Requires PHP 7.4__ for list management functionality.
 
 = What is the plugin license? =
 
@@ -143,9 +143,14 @@ You can report security bugs through the Patchstack Vulnerability Disclosure Pro
 
 == Changelog ==
 
+= 2.12.1 - 2026-08-20 =
+* Tweak: Removed text domain loading method in favor of WordPress standard loading
+* Fix: Re-release for WordPress.org after a failed deploy
+
 = 2.12.0 - 2026-08-19 =
 * New: Request Source Tracking - See where each change came from (REST API, WP-CLI, WP-Cron, XML-RPC, WP Abilities, Application Passwords)
 * New: Added metadata storage for extensible log context
+* Tweak: Large activity log tables no longer auto-run database migrations — an admin notice with a manual upgrade button is shown instead
 
 = 2.11.2 - 2024-11-12 =
 * Security Fix: Improved code security enforcement in theme/plugin file editor
@@ -424,8 +429,8 @@ You can report security bugs through the Patchstack Vulnerability Disclosure Pro
 * Added filter by date - All Time, Today, Yesterday, Week, Month
 * Added Avatar to author
 * Added role for author
-* Added log for activeted theme
-* Re-order Culoumns
+* Added log for activated theme
+* Re-order Columns
 * Compatible up to 3.8.1
 * Settings page is now accessible directly from Activity Log's menu
 * Keep your log for any time your wants
