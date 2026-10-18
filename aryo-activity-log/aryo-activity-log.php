@@ -5,7 +5,7 @@ Plugin URI: https://activitylog.io/?utm_source=wp-plugins&utm_campaign=plugin-ur
 Description: This top rated Activity Log plugin helps you monitor & log all changes and actions on your WordPress site, so you can remain secure and organized.
 Author: Activity Log Team
 Author URI: https://activitylog.io/?utm_source=wp-plugins&utm_campaign=author-uri&utm_medium=wp-dash
-Version: 2.15.0
+Version: 2.16.0
 Text Domain: aryo-activity-log
 License: GPLv2 or later
 
@@ -37,6 +37,7 @@ include( 'classes/class-aal-settings.php' );
 include( 'classes/class-aal-api.php' );
 include( 'classes/class-aal-hooks.php' );
 include( 'classes/class-aal-rest.php' );
+include( 'classes/class-aal-abilities.php' );
 include( 'classes/class-aal-export.php' );
 include( 'classes/class-aal-privacy.php' );
 include( 'classes/abstract-class-aal-exporter.php' );
@@ -83,6 +84,11 @@ final class AAL_Main {
 	public $rest;
 
 	/**
+	 * @var AAL_Abilities|null
+	 */
+	public $abilities;
+
+	/**
 	 * Construct
 	 */
 	protected function __construct() {
@@ -93,6 +99,7 @@ final class AAL_Main {
 		$this->settings      = new AAL_Settings();
 		$this->api           = new AAL_API();
 		$this->rest          = new AAL_REST();
+		$this->abilities     = new AAL_Abilities( $this->rest );
 
 		new AAL_Export();
 		new AAL_Privacy();

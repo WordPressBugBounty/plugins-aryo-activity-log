@@ -4,7 +4,7 @@ Tags: Activity Log, User Log, Audit Log, Security, Email Log,
 Requires at least: 6.2
 Requires PHP: 7.4
 Tested up to: 7.1
-Stable tag: 2.15.0
+Stable tag: 2.16.0
 License: GPLv2 or later
 
 Monitor every change on your WordPress site — who did what, when, and where it came from — for a complete audit trail and stronger security.
@@ -51,6 +51,7 @@ If you have more than a handful of users, keeping track of who did what by hand 
 * <strong>Options</strong> - Extended custom settings for 3rd party plugins
 * <strong>Export</strong> - Exported activity log file
 * <strong>Request Source</strong> - WP Admin, REST API, WP-CLI, WP-Cron, XML-RPC, WP Abilities, and Application Password name when used
+* <strong>AI Agents</strong> - Lets AI agents read your logs on WordPress 6.9 or later, once you turn it on in the settings. They can query logs, summarize activity, and detect suspicious events like repeated failed logins, new admin accounts, and changes to sensitive settings.
 * <strong>WooCommerce</strong> - Track products, orders, customers, and more
 * <strong>bbPress</strong> - Forums, topics, replies, taxonomies, and other actions
 * <strong>Emails sent from WordPress site</strong> - Sending successful, sending failed
@@ -82,7 +83,7 @@ Uninstalling the plugin removes all of its data from your database automatically
 * <em>“Activity Log lets you track a huge range of activities. Overall, very easy to use and setup”</em> - [ElegantThemes.com](https://www.elegantthemes.com/blog/tips-tricks/5-best-ways-to-monitor-wordpress-activity-via-the-dashboard)
 
 <h3>Contributions:</h3>
-<strong>Would you like to contribute to this plugin?</strong> You’re more than welcome to submit your pull requests on the [GitHub repo](https://github.com/pojome/activity-log). And, if you have any notes about the code, please open a ticket on the issue tracker.
+<strong>Would you like to contribute to this plugin?</strong> You’re more than welcome to submit your pull requests on the [GitHub repo](https://github.com/elementor/activity-log). And, if you have any notes about the code, please open a ticket on the issue tracker.
 
 == Installation ==
 
@@ -117,6 +118,10 @@ You can easily export logs with Activity Log. We also support exporting filtered
 
 Yes. Each log entry records its Request Source, so you can tell whether a change was made through the WP Admin, the REST API, WP-CLI, WP-Cron, XML-RPC, or the WP Abilities API. If the request was authenticated with an Application Password, its name is shown as well. Use the Source filter on the log screen to narrow results down to a specific channel.
 
+= Can AI agents read my activity log? =
+
+Yes, if you turn it on in the settings. On WordPress 6.9 or later, Activity Log adds read-only abilities through the WordPress Abilities API, so AI agents can query logs, summarize activity, and detect suspicious events.
+
 = How long are logs kept? =
 
 By default, logs are kept for 30 days, but you can set your own retention period from the settings page — from a few days to forever. Failed login attempts and email logs can also be kept or discarded independently.
@@ -142,6 +147,16 @@ Yes. Beyond the built-in toggles for failed logins and email logs, developers ca
 You can report security bugs through the Patchstack Vulnerability Disclosure Program. The Patchstack team help validate, triage and handle any security vulnerabilities. [Report a security vulnerability](https://patchstack.com/database/vdp/aryo-activity-log).
 
 == Changelog ==
+
+= 2.16.0 - 2026-10-12 =
+* New: Suspicious events detection ability for AI agents
+* New: Activity summary ability for AI agents
+* New: Read-only Abilities API support for AI agents (WP 6.9+)
+* New: Setting to expose activity log to AI agents
+* Tweak: Exclude IP addresses from ability responses
+* Tweak: Added schema and ISO-8601 time to the REST logs endpoint
+* Tweak: Added more core settings to the options activity log
+* Fix: Reactivation over an older log table no longer breaks logging ([#244](https://github.com/elementor/activity-log/issues/244))
 
 = 2.15.0 - 2026-09-07 =
 * New: Settings page rebuilt with React UI and REST API
