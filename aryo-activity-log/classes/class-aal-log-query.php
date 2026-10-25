@@ -154,11 +154,11 @@ class AAL_Log_Query {
 			return false;
 		}
 
-		$user_cap   = strtolower( key( $user->caps ) );
+		$user_role  = ! empty( $user->roles[0] ) ? strtolower( $user->roles[0] ) : '';
 		$allow_caps = array();
 
 		foreach ( $this->caps as $key => $cap_allow ) {
-			if ( $key === $user_cap ) {
+			if ( $key === $user_role ) {
 				$allow_caps = array_merge( $allow_caps, $cap_allow );
 				break;
 			}
@@ -265,8 +265,9 @@ class AAL_Log_Query {
 	 *     @type int    $page        1-indexed page number.
 	 *     @type int    $per_page    Items per page (max 100).
 	 *     @type bool   $exclude_ip  When true, omit hist_ip from the search columns.
+	 *     @type bool   $skip_count  When true, skip COUNT and infer has_more from per_page + 1 fetch.
 	 * }
-	 * @return array { items: object[], total: int, pages: int } or empty on access denied.
+	 * @return array { items: object[], total: int|null, pages: int|null, has_more: bool } or empty on access denied.
 	 */
 	public function query( $args = array() ) {
 		global $wpdb;
@@ -274,9 +275,10 @@ class AAL_Log_Query {
 		$role_where = $this->get_where_by_role();
 		if ( false === $role_where ) {
 			return array(
-				'items' => array(),
-				'total' => 0,
-				'pages' => 0,
+				'items'    => array(),
+				'total'    => 0,
+				'pages'    => 0,
+				'has_more' => false,
 			);
 		}
 
@@ -294,6 +296,7 @@ class AAL_Log_Query {
 			'page'       => 1,
 			'per_page'   => 50,
 			'exclude_ip' => false,
+			'skip_count' => false,
 		) );
 
 		$where = ' WHERE 1 = 1';
@@ -385,10 +388,20 @@ class AAL_Log_Query {
 		$page     = max( 1, (int) $args['page'] );
 		$offset   = ( $page - 1 ) * $per_page;
 
-		$total_items = (int) $wpdb->get_var(
-			'SELECT COUNT(`histid`) FROM `' . $wpdb->activity_log . '`'
-			. $where . ' ' . $role_where
-		);
+		$skip_count = ! empty( $args['skip_count'] );
+
+		$total_items = null;
+		$pages       = null;
+
+		if ( ! $skip_count ) {
+			$total_items = (int) $wpdb->get_var(
+				'SELECT COUNT(`histid`) FROM `' . $wpdb->activity_log . '`'
+				. $where . ' ' . $role_where
+			);
+			$pages = (int) ceil( $total_items / $per_page );
+		}
+
+		$limit_count = $skip_count ? $per_page + 1 : $per_page;
 
 		$items = $wpdb->get_results( $wpdb->prepare(
 			'SELECT * FROM `' . $wpdb->activity_log . '`'
@@ -396,13 +409,23 @@ class AAL_Log_Query {
 			. ' ORDER BY ' . $items_orderby . ' ' . $items_order
 			. ' LIMIT %d, %d;',
 			$offset,
-			$per_page
+			$limit_count
 		) );
 
+		if ( $skip_count ) {
+			$has_more = $items && count( $items ) > $per_page;
+			if ( $has_more ) {
+				$items = array_slice( $items, 0, $per_page );
+			}
+		} else {
+			$has_more = $page < $pages;
+		}
+
 		return array(
-			'items' => $items ? $items : array(),
-			'total' => $total_items,
-			'pages' => (int) ceil( $total_items / $per_page ),
+			'items'    => $items ? $items : array(),
+			'total'    => $total_items,
+			'pages'    => $pages,
+			'has_more' => $has_more,
 		);
 	}
 
@@ -451,13 +474,16 @@ class AAL_Log_Query {
 			}
 		}
 
+		global $wp_roles;
+
 		$allow_caps = $this->get_allow_caps();
 		$roles      = array();
 		if ( false !== $allow_caps ) {
 			foreach ( $allow_caps as $cap ) {
+				$label = isset( $wp_roles->role_names[ $cap ] ) ? $wp_roles->role_names[ $cap ] : ucwords( $cap );
 				$roles[] = array(
 					'value' => $cap,
-					'label' => ucwords( $cap ),
+					'label' => $label,
 				);
 			}
 		}
@@ -898,7 +924,9 @@ class AAL_Log_Query {
 			$parts       = array();
 			$parts_args  = array();
 			if ( in_array( 'new_admin', $row_rules, true ) ) {
-				$parts[] = "(`object_type` = 'Users' AND `action` = 'registered')";
+				$parts[]      = "(`object_type` = 'Users' AND `action` = 'registered')";
+				$parts[]      = "(`object_type` = 'Users' AND `object_subtype` = 'Role' AND `action` = 'updated' AND `meta` LIKE %s)";
+				$parts_args[] = '%' . $wpdb->esc_like( '","[\\"administrator\\"]' ) . '%';
 			}
 			if ( in_array( 'plugin_activated', $row_rules, true ) ) {
 				$parts[] = "(`object_type` = 'Plugins' AND `action` = 'activated')";
@@ -914,7 +942,7 @@ class AAL_Log_Query {
 
 			$row_sql   = $this->prepare_summary_sql(
 				$role_where,
-				'SELECT `histid`, `user_id`, `action`, `object_type`, `object_name`, `object_id`, `hist_time`, `request_source` FROM %i WHERE `hist_time` >= %d AND `hist_time` <= %d AND (' . implode( ' OR ', $parts ) . ')',
+				'SELECT `histid`, `user_id`, `action`, `object_type`, `object_subtype`, `object_name`, `object_id`, `hist_time`, `request_source`, IF(`object_subtype` = \'Role\', `meta`, NULL) AS `meta` FROM %i WHERE `hist_time` >= %d AND `hist_time` <= %d AND (' . implode( ' OR ', $parts ) . ')',
 				' ORDER BY `hist_time` DESC LIMIT %d',
 				array_merge( array( $wpdb->activity_log, $from_ts, $to_ts ), $parts_args, array( AAL_Abilities::SUSPICIOUS_ROW_LIMIT ) )
 			);
@@ -979,6 +1007,15 @@ class AAL_Log_Query {
 	private function classify_row( $row, $admin_ids ) {
 		if ( 'Users' === $row->object_type && 'registered' === $row->action && in_array( (int) $row->object_id, $admin_ids, true ) ) {
 			return 'new_admin';
+		}
+		if ( 'Users' === $row->object_type && 'Role' === $row->object_subtype && 'updated' === $row->action ) {
+			$decoded = json_decode( (string) $row->meta, true );
+			$pair    = ( is_array( $decoded ) && isset( $decoded['changes']['roles'] ) && is_array( $decoded['changes']['roles'] ) ) ? $decoded['changes']['roles'] : array();
+			$old     = isset( $pair[0] ) ? json_decode( (string) $pair[0], true ) : array();
+			$new     = isset( $pair[1] ) ? json_decode( (string) $pair[1], true ) : array();
+			if ( is_array( $new ) && in_array( 'administrator', $new, true ) && ( ! is_array( $old ) || ! in_array( 'administrator', $old, true ) ) ) {
+				return 'new_admin';
+			}
 		}
 		if ( 'Plugins' === $row->object_type && 'activated' === $row->action ) {
 			return 'plugin_activated';
