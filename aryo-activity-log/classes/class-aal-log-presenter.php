@@ -167,6 +167,22 @@ class AAL_Log_Presenter {
 				case 'changes':
 					$row[ $column ] = self::format_changes_export( $item );
 					break;
+
+				case 'time_iso':
+					$row[ $column ] = AAL_Log_Query::hist_time_to_iso8601( (int) $item->hist_time );
+					break;
+
+				case 'user_id':
+					$row[ $column ] = (int) $item->user_id;
+					break;
+
+				case 'object_id':
+					$row[ $column ] = (string) $item->object_id;
+					break;
+
+				case 'action_key':
+					$row[ $column ] = $item->action;
+					break;
 			}
 		}
 
@@ -195,7 +211,12 @@ class AAL_Log_Presenter {
 	}
 
 	public static function get_action_label( $action ) {
-		return ucwords( str_replace( '_', ' ', __( $action, 'aryo-activity-log' ) ) );
+		$translated = __( $action, 'aryo-activity-log' );
+		if ( $translated !== $action ) {
+			return ucfirst( $translated );
+		}
+
+		return ucwords( str_replace( '_', ' ', $action ) );
 	}
 
 	private static function format_date( $item ) {

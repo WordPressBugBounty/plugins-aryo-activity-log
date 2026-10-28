@@ -4,7 +4,7 @@ Tags: Activity Log, User Log, Audit Log, Security, Email Log,
 Requires at least: 6.2
 Requires PHP: 7.4
 Tested up to: 7.1
-Stable tag: 2.17.0
+Stable tag: 2.18.0
 License: GPLv2 or later
 
 Monitor every change on your WordPress site — who did what, when, and where it came from — for a complete audit trail and stronger security.
@@ -153,6 +153,27 @@ Yes. Beyond the built-in toggles for failed logins and email logs, developers ca
 You can report security bugs through the Patchstack Vulnerability Disclosure Program. The Patchstack team help validate, triage and handle any security vulnerabilities. [Report a security vulnerability](https://patchstack.com/database/vdp/aryo-activity-log).
 
 == Changelog ==
+
+= 2.18.0 - 2026-10-28 =
+* New: Anonymize a user's activity log entries through the WordPress personal data eraser
+* New: Log application password and password reset events
+* New: Log theme and plugin file editor changes
+* New: Added the wp activity-log WP-CLI command with list, stats and erase subcommands
+* New: Incremental log fetching with after_id in the REST API and abilities
+* New: Export logs as JSON Lines, also available via wp activity-log list --format=jsonl
+* Tweak: Log an entry when all activity logs are erased
+* Tweak: Run old logs cleanup hourly instead of daily so large sites catch up faster
+* Tweak: Export logs in batches to support large sites
+* Tweak: Add ISO time, user ID, object ID and action key columns to the CSV export
+* Fix: Use proper plural forms for change, item and field counts in translations
+* Fix: Keep translated action labels exactly as translators wrote them
+* Fix: Log user events as Unknown user when the user no longer exists
+* Fix: Log the correct name and version for single-file plugins and folders with several plugins
+* Fix: Personal data export now completes for users with many log entries
+* Fix: Log role changes made by adding or removing a single role, and detect users promoted to administrator with several roles
+* Fix: Different events logged in the same second are no longer dropped as duplicates
+* Fix: PHP 8.4 deprecation notices flooding the debug log during CSV export
+* Fix: Keep log IDs increasing after erasing all logs, so incremental after_id fetching keeps working
 
 = 2.17.0 - 2026-10-25 =
 * New: Show old and new values for settings, posts, users, user roles, comments, plugin versions, themes, WordPress core version, widget and term changes

@@ -5,6 +5,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class AAL_Log_Query {
 
+	const AFTER_ID_SAFETY_WINDOW_SECONDS = 5;
+
 	/** Site-local instant to stored hist_time (same space as current_time( 'timestamp' )). */
 	public static function local_datetime_to_hist_time( DateTimeImmutable $local_datetime ) {
 		return $local_datetime->getTimestamp() + wp_timezone()->getOffset( $local_datetime );
@@ -70,9 +72,30 @@ class AAL_Log_Query {
 	protected $caps = array();
 	protected $allow_caps = array();
 
-	public function __construct() {
+	/**
+	 * When true, skip role/cap visibility restrictions (opt-in for trusted callers such as WP-CLI).
+	 *
+	 * @var bool
+	 */
+	protected $unrestricted = false;
+
+	/**
+	 * @param array $args {
+	 *     @type bool $unrestricted Skip role/cap filters when true.
+	 * }
+	 */
+	public function __construct( $args = array() ) {
+		$args = wp_parse_args( $args, array( 'unrestricted' => false ) );
+		$this->unrestricted = ! empty( $args['unrestricted'] );
 		$this->init_roles();
 		$this->init_caps();
+	}
+
+	/**
+	 * @return bool
+	 */
+	protected function is_unrestricted() {
+		return $this->unrestricted;
 	}
 
 	protected function init_roles() {
@@ -145,6 +168,15 @@ class AAL_Log_Query {
 	 * @return array|false Allowed caps for the current user, or false if denied.
 	 */
 	public function get_allow_caps() {
+		if ( $this->is_unrestricted() ) {
+			$all_caps = array();
+			foreach ( $this->caps as $cap_allow ) {
+				$all_caps = array_merge( $all_caps, $cap_allow );
+			}
+
+			return array_values( array_unique( $all_caps ) );
+		}
+
 		if ( ! empty( $this->allow_caps ) ) {
 			return $this->allow_caps;
 		}
@@ -181,6 +213,10 @@ class AAL_Log_Query {
 	 * @return string|false SQL fragment, or false if denied.
 	 */
 	public function get_where_by_role() {
+		if ( $this->is_unrestricted() ) {
+			return '';
+		}
+
 		$allow_modules = array();
 
 		foreach ( $this->roles as $key => $role ) {
@@ -249,6 +285,51 @@ class AAL_Log_Query {
 	}
 
 	/**
+	 * Resolve a dateshow filter value to start/end hist_time timestamps.
+	 *
+	 * @param string $dateshow Filter value from the activity log UI.
+	 * @return array{start: int, end: int}|null Start and end timestamps, or null when invalid.
+	 */
+	public static function get_date_range( $dateshow ) {
+		if ( empty( $dateshow ) ) {
+			return null;
+		}
+
+		$current_time = current_time( 'timestamp' );
+		$start_time   = 0;
+		$end_time     = 0;
+
+		if ( in_array( $dateshow, array( 'today', 'yesterday', 'week', 'month' ), true ) ) {
+			$start_time = mktime( 0, 0, 0, date( 'm', $current_time ), date( 'd', $current_time ), date( 'Y', $current_time ) );
+			$end_time   = mktime( 23, 59, 59, date( 'm', $current_time ), date( 'd', $current_time ), date( 'Y', $current_time ) );
+
+			if ( 'yesterday' === $dateshow ) {
+				$start_time = strtotime( 'yesterday', $start_time );
+				$end_time   = mktime( 23, 59, 59, date( 'm', $start_time ), date( 'd', $start_time ), date( 'Y', $start_time ) );
+			} elseif ( 'week' === $dateshow ) {
+				$start_time = strtotime( '-1 week', $start_time );
+			} elseif ( 'month' === $dateshow ) {
+				$start_time = strtotime( '-30 days', $start_time );
+			}
+		} else {
+			$date_array = explode( '/', $dateshow );
+			if ( 3 === count( $date_array ) ) {
+				$start_time = mktime( 0, 0, 0, (int) $date_array[1], (int) $date_array[0], (int) $date_array[2] );
+				$end_time   = mktime( 23, 59, 59, (int) $date_array[1], (int) $date_array[0], (int) $date_array[2] );
+			}
+		}
+
+		if ( empty( $start_time ) || empty( $end_time ) ) {
+			return null;
+		}
+
+		return array(
+			'start' => (int) $start_time,
+			'end'   => (int) $end_time,
+		);
+	}
+
+	/**
 	 * Query activity log rows.
 	 *
 	 * @param array $args {
@@ -266,21 +347,28 @@ class AAL_Log_Query {
 	 *     @type int    $per_page    Items per page (max 100).
 	 *     @type bool   $exclude_ip  When true, omit hist_ip from the search columns.
 	 *     @type bool   $skip_count  When true, skip COUNT and infer has_more from per_page + 1 fetch.
+	 *     @type int    $after_id    When set, return rows with histid greater than this (incremental fetch). orderby, order and page are ignored.
 	 * }
-	 * @return array { items: object[], total: int|null, pages: int|null, has_more: bool } or empty on access denied.
+	 * @return array { items: object[], total: int|null, pages: int|null, has_more: bool, next_after_id?: int } (empty items on access denied).
 	 */
 	public function query( $args = array() ) {
 		global $wpdb;
 
 		$role_where = $this->get_where_by_role();
 		if ( false === $role_where ) {
-			return array(
+			$denied = array(
 				'items'    => array(),
 				'total'    => 0,
 				'pages'    => 0,
 				'has_more' => false,
 			);
+			if ( is_array( $args ) && array_key_exists( 'after_id', $args ) ) {
+				$denied['next_after_id'] = (int) $args['after_id'];
+			}
+			return $denied;
 		}
+
+		$after_id_mode = array_key_exists( 'after_id', $args );
 
 		$args = wp_parse_args( $args, array(
 			'typeshow'   => '',
@@ -297,7 +385,12 @@ class AAL_Log_Query {
 			'per_page'   => 50,
 			'exclude_ip' => false,
 			'skip_count' => false,
+			'before_id'  => 0,
+			'min_id'     => 0,
+			'after_id'   => 0,
 		) );
+
+		$after_id = (int) $args['after_id'];
 
 		$where = ' WHERE 1 = 1';
 
@@ -335,33 +428,18 @@ class AAL_Log_Query {
 		}
 
 		if ( ! empty( $args['dateshow'] ) ) {
-			$current_time = current_time( 'timestamp' );
-			$start_time   = 0;
-			$end_time     = 0;
-
-			if ( in_array( $args['dateshow'], array( 'today', 'yesterday', 'week', 'month' ), true ) ) {
-				$start_time = mktime( 0, 0, 0, date( 'm', $current_time ), date( 'd', $current_time ), date( 'Y', $current_time ) );
-				$end_time   = mktime( 23, 59, 59, date( 'm', $current_time ), date( 'd', $current_time ), date( 'Y', $current_time ) );
-
-				if ( 'yesterday' === $args['dateshow'] ) {
-					$start_time = strtotime( 'yesterday', $start_time );
-					$end_time   = mktime( 23, 59, 59, date( 'm', $start_time ), date( 'd', $start_time ), date( 'Y', $start_time ) );
-				} elseif ( 'week' === $args['dateshow'] ) {
-					$start_time = strtotime( '-1 week', $start_time );
-				} elseif ( 'month' === $args['dateshow'] ) {
-					$start_time = strtotime( '-30 days', $start_time );
-				}
-			} else {
-				$date_array = explode( '/', $args['dateshow'] );
-				if ( 3 === count( $date_array ) ) {
-					$start_time = mktime( 0, 0, 0, (int) $date_array[1], (int) $date_array[0], (int) $date_array[2] );
-					$end_time   = mktime( 23, 59, 59, (int) $date_array[1], (int) $date_array[0], (int) $date_array[2] );
-				}
+			$date_range = self::get_date_range( $args['dateshow'] );
+			if ( null !== $date_range ) {
+				$where .= $wpdb->prepare( ' AND `hist_time` > %d AND `hist_time` < %d', $date_range['start'], $date_range['end'] );
 			}
+		}
 
-			if ( ! empty( $start_time ) && ! empty( $end_time ) ) {
-				$where .= $wpdb->prepare( ' AND `hist_time` > %d AND `hist_time` < %d', $start_time, $end_time );
-			}
+		if ( ! empty( $args['min_id'] ) ) {
+			$where .= $wpdb->prepare( ' AND `histid` >= %d', (int) $args['min_id'] );
+		}
+
+		if ( ! empty( $args['before_id'] ) ) {
+			$where .= $wpdb->prepare( ' AND `histid` < %d', (int) $args['before_id'] );
 		}
 
 		if ( ! empty( $args['s'] ) ) {
@@ -380,7 +458,24 @@ class AAL_Log_Query {
 			);
 		}
 
-		$allowed_orderby = array( 'hist_time', 'hist_ip' );
+		if ( $after_id_mode ) {
+			$where .= $wpdb->prepare( ' AND `histid` > %d', $after_id );
+
+			// Stop before the oldest row that is still inside the safety window (or dated in the future, e.g. after a DST fall-back),
+			// so the cursor never moves past a row that a later poll would return.
+			$safety_cutoff  = current_time( 'timestamp' ) - self::AFTER_ID_SAFETY_WINDOW_SECONDS;
+			$barrier_histid = (int) $wpdb->get_var(
+				'SELECT MIN(`histid`) FROM `' . $wpdb->activity_log . '`'
+				. $where
+				. $wpdb->prepare( ' AND `hist_time` > %d', $safety_cutoff )
+				. ' ' . $role_where
+			);
+			if ( $barrier_histid > 0 ) {
+				$where .= $wpdb->prepare( ' AND `histid` < %d', $barrier_histid );
+			}
+		}
+
+		$allowed_orderby = array( 'hist_time', 'hist_ip', 'histid' );
 		$items_orderby   = in_array( $args['orderby'], $allowed_orderby, true ) ? $args['orderby'] : 'hist_time';
 		$items_order     = 'ASC' === strtoupper( $args['order'] ) ? 'ASC' : 'DESC';
 
@@ -388,7 +483,13 @@ class AAL_Log_Query {
 		$page     = max( 1, (int) $args['page'] );
 		$offset   = ( $page - 1 ) * $per_page;
 
-		$skip_count = ! empty( $args['skip_count'] );
+		if ( $after_id_mode ) {
+			$items_orderby = 'histid';
+			$items_order   = 'ASC';
+			$offset        = 0;
+		}
+
+		$skip_count = ! empty( $args['skip_count'] ) || $after_id_mode;
 
 		$total_items = null;
 		$pages       = null;
@@ -421,12 +522,23 @@ class AAL_Log_Query {
 			$has_more = $page < $pages;
 		}
 
-		return array(
+		$result = array(
 			'items'    => $items ? $items : array(),
 			'total'    => $total_items,
 			'pages'    => $pages,
 			'has_more' => $has_more,
 		);
+
+		if ( $after_id_mode ) {
+			$next_after_id = $after_id;
+			if ( ! empty( $result['items'] ) ) {
+				$last_item     = end( $result['items'] );
+				$next_after_id = (int) $last_item->histid;
+			}
+			$result['next_after_id'] = $next_after_id;
+		}
+
+		return $result;
 	}
 
 	/**
@@ -505,7 +617,7 @@ class AAL_Log_Query {
 			foreach ( $actions_raw as $action ) {
 				$actions[] = array(
 					'value' => $action->action,
-					'label' => ucwords( str_replace( '_', ' ', $action->action ) ),
+					'label' => AAL_Log_Presenter::get_action_label( $action->action ),
 				);
 			}
 		}
@@ -926,7 +1038,7 @@ class AAL_Log_Query {
 			if ( in_array( 'new_admin', $row_rules, true ) ) {
 				$parts[]      = "(`object_type` = 'Users' AND `action` = 'registered')";
 				$parts[]      = "(`object_type` = 'Users' AND `object_subtype` = 'Role' AND `action` = 'updated' AND `meta` LIKE %s)";
-				$parts_args[] = '%' . $wpdb->esc_like( '","[\\"administrator\\"]' ) . '%';
+				$parts_args[] = '%' . $wpdb->esc_like( 'administrator' ) . '%';
 			}
 			if ( in_array( 'plugin_activated', $row_rules, true ) ) {
 				$parts[] = "(`object_type` = 'Plugins' AND `action` = 'activated')";
